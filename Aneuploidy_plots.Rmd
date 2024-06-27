@@ -1,0 +1,156 @@
+---
+title: "Aneuploidy"
+author: "CCrossman"
+date: "2024-01-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(tidyverse)
+library(patchwork)
+```
+
+```{r}
+# Import data files
+Eau9c_depth_table <- read.table('coverage/Eau9c_blue_coverage', header = FALSE)
+Eau7_depth_table <- read.table('coverage/Eau7_blue_coverage', header = FALSE)
+Eau283_depth_table <- read.table('coverage/Eau283_blue_coverage_fixedname', header = FALSE)
+Eau10b_depth_table <- read.table('coverage/Eau10b_blue_coverage_fixedname', header = FALSE)
+Eau017_depth_table <- read.table('coverage/Eau017_blue_coverage', header = FALSE)
+
+Eau9c_depth_table$sample <- "Eau9c (F)"
+Eau7_depth_table$sample <- "Eau7 (M)"
+Eau283_depth_table$sample <- "Eau283 (M)"
+Eau10b_depth_table$sample <- "Eau10b (?)"
+Eau017_depth_table$sample <- "Eau017 (F)"
+
+coverage_stats <- rbind(Eau9c_depth_table[1:23,], Eau7_depth_table[1:23,], Eau283_depth_table[1:23,], Eau10b_depth_table[1:23,], Eau017_depth_table[1:23,])
+colnames(coverage_stats) <- c("contig", "start_pos", "end_pos", "length", "covered_bases", "coverage", "depth", "meanbq", "meanmq", "sample")
+```
+
+Plot depth summary statistics
+
+```{r}
+#depth_table <- read.table('total_depth_statistics_all', header = TRUE)
+list <- c(rep("Autosome", 21), "X", "Y")
+
+depth_plot <- coverage_stats %>%
+  ggplot() +
+    geom_bar(aes(x = contig, y = depth, fill = rep(list, 5)), stat="identity") +
+    facet_grid(~sample) + 
+    scale_fill_manual(values=c("grey40","red","blue")) +
+    ylab("Mean Read Depth") +
+    xlab("Chromosome") +
+    theme_bw() +
+    theme(legend.title=element_blank(), axis.text.x=element_text(angle=90,hjust=1))
+
+depth_plot
+```
+
+
+```{r}
+autosomal_mean_depth <- coverage_stats %>%
+  filter(contig != "NC_045806.1" & contig != "NC_045807.1") %>%
+  group_by(sample) %>%
+  summarize(mean_auto = mean(depth))
+
+
+
+larger_data_table <- full_join(coverage_stats, autosomal_mean_depth, by = "sample")
+
+mean_depth_plot <- larger_data_table %>%
+  mutate(adjusted_mean = depth / mean_auto) %>%
+  ggplot() +
+    geom_point(aes(x = contig, y = adjusted_mean, colour = rep(list, 5)), stat="identity", size = 2.5) +
+    geom_hline(yintercept = 1) +
+    facet_grid(~sample) + 
+    scale_colour_manual(values=c("grey40","red","blue")) +
+    ylab("Mean Read Depth / Mean Autosomal Depth") +
+    xlab("Chromosome") +
+    theme_bw() +
+    #theme(legend.title=element_blank(), axis.text.x=element_text(angle=90,hjust=1))
+    theme(legend.title=element_blank(), axis.text.x=element_blank())
+
+mean_depth_plot
+```
+
+Plotting Coverage
+```{r}
+coverage_plot <- coverage_stats %>%
+  ggplot() +
+    geom_bar(aes(x = contig, y = coverage, fill = rep(list, 5)), stat="identity") +
+    facet_grid(~sample) + 
+    scale_fill_manual(values=c("grey40","red","blue")) +
+    ylab("Coverage") +
+    xlab("Chromosome") +
+    theme_bw() +
+    #theme(legend.title=element_blank(), axis.text.x=element_text(angle=90,hjust=1))
+    theme(legend.title=element_blank(), axis.text.x=element_blank())
+    
+coverage_plot
+```
+
+
+
+
+Plotting heterozygosity and F (deviation heterozygosity from expectations) in two panels.
+
+
+```{r}
+heterozygosity <- read.table('SRW_filtered_AF_miss.het', header = TRUE)
+heterozygosity$total_size <- 138688575
+heterozygosity$sex <- c("?", "M", "M", "F")
+
+het_plot <- heterozygosity %>%
+  mutate(heterozygotes = N_SITES-O.HOM., percent_het = heterozygotes/total_size) %>%
+  ggplot() +
+    geom_bar(aes(x = INDV, y = heterozygotes, fill = sex), stat="identity") +
+    ylab("Number of Heterozygous sites on X-Chromosome") +
+    xlab("Individual") +
+    scale_fill_manual(values = c("grey40","red","blue"))
+
+het_plot
+```
+
+ZFX/ZFY ratios
+
+```{r}
+ZFY <- c(74, 61, 132, 0, 1)
+ZFX <- c(262, 66, 176, 242, 102)
+
+Eau10b <- 262/74
+Eau283 <- 66/61
+Eau7 <- 176/132
+Eau9 <- 242/0.1
+Eau017 <- 102/1
+
+df <- data.frame(ZFX, ZFY)
+df$ind <- c("Eau10b (?)", "Eau283 (M)", "Eau7 (M)", "Eau9 (F)", "Eau017 (F)")
+
+
+zfx_zfy_plot <- ggplot(df) +
+  geom_point(aes(ZFX, ZFY, colour = c("grey40","blue","blue","red","red")), size = 5, key_glyph = "abline") +
+  geom_abline(slope = 1,intercept = 0, linetype = 2, colour = "blue") +
+  geom_abline(slope = 0,intercept = 0, linetype = 2, colour = "red") +
+  geom_abline(slope = 0.33,intercept = 0, linetype = 2, colour = "grey40") +
+  geom_text(aes(x = ZFX + 25, y = ZFY + 10, label = ind)) +
+  xlim(0,300) + 
+  ylim(0,300) +
+  xlab("ZFX reads per sample") +
+  ylab("ZFY reads per sample") +
+  theme_bw() +
+  #scale_colour_manual(values = c("red","grey40","blue","blue","red"), guide = "none")
+  scale_colour_identity(name = "Theoretical\nExpectation",
+                          breaks = c("red", "blue", "grey40"),
+                          labels = c("XX", "XY", "XXY"),
+                          guide = "legend")
+
+zfx_zfy_plot
+```
+
+```{r}
+
+mean_depth_plot / coverage_plot / zfx_zfy_plot + plot_annotation(tag_levels = 'A')
+```
